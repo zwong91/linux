@@ -81,11 +81,12 @@ cmd_image = $(obj)/tools/build $(obj)/setup.bin $(obj)/vmlinux.bin \
 			       $(obj)/zoffset.h $@ $($(quiet)redirect_image)
 
 # bzImage依赖于$(obj)/setup.bin $(obj)/vmlinux.bin $(obj)/tools/build, build为arch/x86/boot/tools/build工具, 生成bzImage
+# build 查看arch/x86/boot/.bzImage.cmd
 $(obj)/bzImage: $(obj)/setup.bin $(obj)/vmlinux.bin $(obj)/tools/build FORCE
 	$(call if_changed,image)
 	@$(kecho) 'Kernel: $@ is ready' ' (#'`cat .version`')'
 
-# 
+# vmlinux.bin依赖于vmlinux, arch/x86/boot/compressed/Makefile
 OBJCOPYFLAGS_vmlinux.bin := -O binary -R .note -R .comment -S
 $(obj)/vmlinux.bin: $(obj)/compressed/vmlinux FORCE
 	$(call if_changed,objcopy)
@@ -110,7 +111,14 @@ LDFLAGS_setup.elf	:= -m elf_i386 -z noexecstack -T
 $(obj)/setup.elf: $(src)/setup.ld $(SETUP_OBJS) FORCE
 	$(call if_changed,ld)
 
-# setup.bin依赖于setup.elf 
+# setup.bin依赖于setup.elf, 找到arch/x86/boot/.setup.elf.cmd
+# cmd_arch/x86/boot/setup.elf := ld -m elf_x86_64   -m elf_i386 -T arch/x86/boot/setup.ld  \ 
+# arch/x86/boot/a20.o arch/x86/boot/bioscall.o arch/x86/boot/cmdline.o arch/x86/boot/copy.o \ 
+# arch/x86/boot/cpu.o arch/x86/boot/cpuflags.o arch/x86/boot/cpucheck.o arch/x86/boot/early_serial_console.o \ 
+# arch/x86/boot/edd.o arch/x86/boot/header.o arch/x86/boot/main.o arch/x86/boot/memory.o arch/x86/boot/pm.o \ 
+# arch/x86/boot/pmjump.o arch/x86/boot/printf.o arch/x86/boot/regs.o arch/x86/boot/string.o arch/x86/boot/tty.o \ 
+# arch/x86/boot/video.o arch/x86/boot/video-mode.o arch/x86/boot/version.o arch/x86/boot/video-vga.o \ 
+# arch/x86/boot/video-vesa.o arch/x86/boot/video-bios.o -o arch/x86/boot/setup.elf
 OBJCOPYFLAGS_setup.bin	:= -O binary
 $(obj)/setup.bin: $(obj)/setup.elf FORCE
 	$(call if_changed,objcopy)

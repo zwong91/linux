@@ -352,14 +352,14 @@ static void parse_zoffset(char *fname)
 	p = (char *)buf;
 
 	while (p && *p) {
-		PARSE_ZOFS(p, efi32_stub_entry);
-		PARSE_ZOFS(p, efi64_stub_entry);
+		PARSE_ZOFS(p, efi32_stub_entry);	// 0x0000000000000000
+		PARSE_ZOFS(p, efi64_stub_entry);	// 0x0000000000000200
 		PARSE_ZOFS(p, efi_pe_entry);
 		PARSE_ZOFS(p, efi32_pe_entry);
-		PARSE_ZOFS(p, kernel_info);
+		PARSE_ZOFS(p, kernel_info);			// 0x00000000001ecce3
 		PARSE_ZOFS(p, startup_64);
-		PARSE_ZOFS(p, _ehead);
-		PARSE_ZOFS(p, _end);
+		PARSE_ZOFS(p, _ehead);		// 0x0000000000000305
+		PARSE_ZOFS(p, _end);		// 0x000000000021a000
 
 		p = strchr(p, '\n');
 		while (p && (*p == '\r' || *p == '\n'))
@@ -367,6 +367,14 @@ static void parse_zoffset(char *fname)
 	}
 }
 
+// build setup.bin vmlinux.bin zoffset.h bzImage
+// 创建bzImage流程:
+//    1. 创建bzImage文件；
+//    2. 写入数据头部；
+//    3. 写入setup.bin和vmlinux.bin数据；
+//    4. 写入efi入口；
+//    5. 写入kernel_info地址等数据和CRC4字节校验；
+//    6. 关闭文件描述符，退出main函数。
 int main(int argc, char ** argv)
 {
 	unsigned int i, sz, setup_sectors, init_sz;
@@ -378,12 +386,14 @@ int main(int argc, char ** argv)
 	void *kernel;
 	u32 crc = 0xffffffffUL;
 
+	// 32位定义efi_pe_entry = 0x10;，64位定义efi_pe_entry = 0x210; startup_64 = 0x200;(起始地址512字节)
 	efi_stub_defaults();
 
 	if (argc != 5)
 		usage();
 	parse_zoffset(argv[3]);
 
+	// 读取setup.bin内容，必须大于1024字节(最大32K)，如果第511-512字节不是0xAA55表示没有启动标志
 	dest = fopen(argv[4], "w");
 	if (!dest)
 		die("Unable to write `%s': %m", argv[4]);
@@ -401,29 +411,30 @@ int main(int argc, char ** argv)
 		die("Boot block hasn't got boot flag (0xAA55)");
 	fclose(file);
 
+	// 为.compat段预留0x20个字节(setup.bin之后的空间)，为.reloc段预留0x20个字节
 	c += reserve_pecoff_compat_section(c);
 	c += reserve_pecoff_reloc_section(c);
 
-	/* Pad unused space with zeros */
+	/* Pad unused space with zeros 计算占用了多少个扇区空间大小*/
 	setup_sectors = (c + 511) / 512;
-	if (setup_sectors < SETUP_SECT_MIN)
+	if (setup_sectors < SETUP_SECT_MIN)	// 如果占用扇区空间小于5，设置为5
 		setup_sectors = SETUP_SECT_MIN;
 	i = setup_sectors*512;
-	memset(buf+c, 0, i-c);
+	memset(buf+c, 0, i-c);	// //未使用的内存空间补零(一般最后一个扇区空间未完全使用)
 
-	update_pecoff_setup_and_reloc(i);
+	update_pecoff_setup_and_reloc(i);	// 填充.setup和.reloc段，如果是IA-32架构需要额外填充.compat段
 
-	/* Set the default root device */
+	/* Set the default root device 509-510字节设置root设备号*/
 	put_unaligned_le16(DEFAULT_ROOT_DEV, &buf[508]);
 
-	/* Open and stat the kernel file */
+	/* Open and stat the kernel file 只读方式打开vmlinux.bin*/
 	fd = open(argv[2], O_RDONLY);
 	if (fd < 0)
 		die("Unable to open `%s': %m", argv[2]);
 	if (fstat(fd, &sb))
 		die("Unable to stat `%s': %m", argv[2]);
 	sz = sb.st_size;
-	kernel = mmap(NULL, sz, PROT_READ, MAP_SHARED, fd, 0);
+	kernel = mmap(NULL, sz, PROT_READ, MAP_SHARED, fd, 0);	// 映射只读内存
 	if (kernel == MAP_FAILED)
 		die("Unable to mmap '%s': %m", argv[2]);
 	/* Number of 16-byte paragraphs, including space for a 4-byte CRC */
@@ -463,8 +474,9 @@ int main(int argc, char ** argv)
 #endif
 	update_pecoff_text(setup_sectors * 512, i + (sys_size * 16), init_sz);
 
-	efi_stub_entry_update();
+	efi_stub_entry_update();	// 写入efi入口地址
 
+	// 写入kernel_info地址(按顺序写入)，写入内核编码，为校验和留下4个字节，剩下未使用的内存空间填充零
 	/* Update kernel_info offset. */
 	put_unaligned_le32(kernel_info, &buf[0x268]);
 
@@ -484,6 +496,7 @@ int main(int argc, char ** argv)
 			die("Writing padding failed");
 	}
 
+	// 写入CRC校验，关闭fd，退出main函数
 	/* Write the CRC */
 	put_unaligned_le32(crc, buf);
 	if (fwrite(buf, 1, 4, dest) != 4)

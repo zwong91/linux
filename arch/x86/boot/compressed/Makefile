@@ -85,6 +85,13 @@ quiet_cmd_voffset = VOFFSET $@
 
 targets += ../voffset.h
 
+# 首先执行$(obj)/…/voffset.h, 获取VO___bss_start_AC, VO__end_AC, VO__text_AC地址
+# nm vmlinux | sed -n -e 's/^\([0-9a-fA-F]*\) [ABCDGRSTVW] \(_text\|__bss_start\|_end\)$$/$(pound)define VO_\2 _AC(0x\1,UL)/p' > arch/x86/boot/compressed/../voffset.h
+
+# #define VO___bss_start_AC(0xffffffff81c0c000,UL)
+# #define VO__end_AC(0xffffffff81e2c000,UL)
+# #define VO__text_AC(0xffffffff81000000,UL)
+
 $(obj)/../voffset.h: vmlinux FORCE
 	$(call if_changed,voffset)
 
@@ -111,6 +118,7 @@ vmlinux-objs-$(CONFIG_EFI_MIXED) += $(obj)/efi_thunk_$(BITS).o
 vmlinux-objs-$(CONFIG_EFI) += $(obj)/efi.o
 efi-obj-$(CONFIG_EFI_STUB) = $(objtree)/drivers/firmware/efi/libstub/lib.a
 
+# 检查是否有数据重载地址(通过.rel.local)
 $(obj)/vmlinux: $(vmlinux-objs-y) $(efi-obj-y) FORCE
 	$(call if_changed,ld)
 
@@ -123,12 +131,15 @@ targets += $(patsubst $(obj)/%,%,$(vmlinux-objs-y)) vmlinux.bin.all vmlinux.relo
 CMD_RELOCS = arch/x86/tools/relocs
 quiet_cmd_relocs = RELOCS  $@
       cmd_relocs = $(CMD_RELOCS) $< > $@;$(CMD_RELOCS) --abs-relocs $<
+
+# 由vmlinux生成二进制文件vmlinux.bin(去除.note和.comment段内容), 生成arch/x86/boot/compressed/vmlinux.relocs
 $(obj)/vmlinux.relocs: vmlinux FORCE
 	$(call if_changed,relocs)
 
 vmlinux.bin.all-y := $(obj)/vmlinux.bin
 vmlinux.bin.all-$(CONFIG_X86_NEED_RELOCS) += $(obj)/vmlinux.relocs
 
+# .config默认配置只开启gzip, 使用gzip(最高压缩比)把vmlinux.bin和vmlinux.relocs压缩到vmlinux.bin.gz
 $(obj)/vmlinux.bin.gz: $(vmlinux.bin.all-y) FORCE
 	$(call if_changed,gzip)
 $(obj)/vmlinux.bin.bz2: $(vmlinux.bin.all-y) FORCE
@@ -155,6 +166,7 @@ suffix-$(CONFIG_KERNEL_ZSTD)	:= zst
 quiet_cmd_mkpiggy = MKPIGGY $@
       cmd_mkpiggy = $(obj)/mkpiggy $< > $@
 
+# 生成mkpiggy工具
 targets += piggy.S
 $(obj)/piggy.S: $(obj)/vmlinux.bin.$(suffix-y) $(obj)/mkpiggy FORCE
 	$(call if_changed,mkpiggy)

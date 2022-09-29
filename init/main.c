@@ -678,31 +678,42 @@ static void __init setup_command_line(char *command_line)
 
 static __initdata DECLARE_COMPLETION(kthreadd_done);
 
+
+/*
+ 1. 启动了(pid)0进程，执行/init启动应用服务(pid)1进程systemd(应用层父进程，systemd安装包中分析)；
+ 2. 启动(pid)2进程kthreadd(内核层(线程)的父进程)。
+
+	其中(pid)0进程属于(pid)1进程和(pid)2进程的父进程，(pid)1进程为应用空间父进程，(pid)2进程为内核空间父进程。
+*/
 noinline void __ref rest_init(void)
 {
 	struct task_struct *tsk;
 	int pid;
 
+	// 设置为运行标志
 	rcu_scheduler_starting();
 	/*
 	 * We need to spawn init first so that it obtains pid 1, however
 	 * the init task will end up wanting to create kthreads, which, if
 	 * we schedule it before we create kthreadd, will OOPS.
 	 */
-	pid = user_mode_thread(kernel_init, NULL, CLONE_FS);
+	/* kernel_init ---- 设置内核抢占模式(如mm、rt、dl等初始化)，打开/dev/console，在释放内存之前，
+	 * 需要完成所有异步初始化代码，运行"/init"进程，运行systemd 包内/sbin/init、/etc/init、/bin/init、/bin/sh */
+	/* system_state = SYSTEM_RUNNING; pid = 1*/
+	pid = user_mode_thread(kernel_init, NULL, CLONE_FS);  // kernel_init这里创建的是1(pid)进程，从.numbers[1].nr得到init(pid)
 	/*
 	 * Pin init on the boot CPU. Task migration is not properly working
 	 * until sched_init_smp() has been run. It will set the allowed
 	 * CPUs for init to the non isolated CPUs.
 	 */
-	rcu_read_lock();
-	tsk = find_task_by_pid_ns(pid, &init_pid_ns);
+	rcu_read_lock(); /* 主要执行禁止内核抢占 + raw_spin_lock，进入无填充(CD=1，NW=0)缓存模式并刷新缓存 ... cr0 = read_cr0() | X86_CR0_CD; write_cr0(cr0); ... */
+	tsk = find_task_by_pid_ns(pid, &init_pid_ns); /* 通过pid找到task_struct结构对象，通过idr机制 */
 	tsk->flags |= PF_NO_SETAFFINITY;
-	set_cpus_allowed_ptr(tsk, cpumask_of(smp_processor_id()));
-	rcu_read_unlock();
+	set_cpus_allowed_ptr(tsk, cpumask_of(smp_processor_id())); /* 启动CPU上的引脚初始化，用于初始化的CPU到非隔离CPU */
+	rcu_read_unlock(); /*  恢复抢占模式，取消读锁*/
 
 	numa_default_policy();
-	pid = kernel_thread(kthreadd, NULL, CLONE_FS | CLONE_FILES);
+	pid = kernel_thread(kthreadd, NULL, CLONE_FS | CLONE_FILES); //创建kthreadd，pid为2，内核层线程继承与它(它的子级共享进程)
 	rcu_read_lock();
 	kthreadd_task = find_task_by_pid_ns(pid, &init_pid_ns);
 	rcu_read_unlock();
@@ -723,7 +734,8 @@ noinline void __ref rest_init(void)
 	 * at least once to get things moving:
 	 */
 	schedule_preempt_disabled();
-	/* Call into cpu_idle with preempt disabled */
+	/* Call into cpu_idle with preempt disabled  do_idle*/
+	// 只有所有进程空闲时，才可能调用到idle进程(pid 0)
 	cpu_startup_entry(CPUHP_ONLINE);
 }
 
@@ -1171,7 +1183,7 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	arch_post_acpi_subsys_init();
 	kcsan_init();
 
-	/* Do the rest non-__init'ed, we're now alive */
+	/* Do the rest non-__init'ed, we're now alive 保持内核进入运行时状态(不退出)*/
 	arch_call_rest_init();
 
 	prevent_tail_call_optimization();
@@ -1544,12 +1556,13 @@ static int __ref kernel_init(void *unused)
 	/*
 	 * Wait until kthreadd is all set-up.
 	 */
+	//  等待kthreadd(pid 2)进程设置完成后(执行到complete(&kthreadd_done))，继续向下执行，此时调度器已经进入工作状态
 	wait_for_completion(&kthreadd_done);
 
 	kernel_init_freeable();
+	// 释放部分内存，放回buddy系统(以供后续使用)
 	/* need to finish all async __init code before freeing the memory */
 	async_synchronize_full();
-
 	system_state = SYSTEM_FREEING_INITMEM;
 	kprobe_free_init_mem();
 	ftrace_free_init_mem();
@@ -1560,11 +1573,12 @@ static int __ref kernel_init(void *unused)
 
 	/*
 	 * Kernel mappings are now finalized - update the userspace page-table
-	 * to finalize PTI.
+	 * to finalize PTI.  更新(克隆)用户空间页表
 	 */
 	pti_finalize();
 
 	system_state = SYSTEM_RUNNING;
+	// 有好多空壳函数，一般不加注释
 	numa_default_policy();
 
 	rcu_end_inkernel_boot();
@@ -1602,6 +1616,7 @@ static int __ref kernel_init(void *unused)
 			return 0;
 	}
 
+	// 执行init程序, /sbin/init(在systemd安装包中src/core/main.c), 设置进程名称为systemd  pid = 1
 	if (!try_to_run_init_process("/sbin/init") ||
 	    !try_to_run_init_process("/etc/init") ||
 	    !try_to_run_init_process("/bin/init") ||
@@ -1630,17 +1645,19 @@ void __init console_on_rootfs(void)
 static noinline void __init kernel_init_freeable(void)
 {
 	/* Now the scheduler is fully set up and can do blocking allocations */
+	// 调度器已经完全设置好，可以执行阻塞分配
 	gfp_allowed_mask = __GFP_BITS_MASK;
 
 	/*
 	 * init can allocate pages on any node
 	 */
+	//设置init可以在任何内存中分配(常规、高、可移动内存)
 	set_mems_allowed(node_states[N_MEMORY]);
-
+	//保存init id，cad_pid用于在内核启动过程中执行ctrl-alt-del重新启动(默认值为yes) 
 	cad_pid = get_pid(task_pid(current));
 
 	smp_prepare_cpus(setup_max_cpus);
-
+	// 工作队列子系统初始化numa队列(cpu可使用numa内存)，初始化工作池等等
 	workqueue_init();
 
 	init_mm_internals();

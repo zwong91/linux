@@ -628,6 +628,7 @@ void __init prepare_namespace(void)
 			root_device_name += 5;
 	}
 
+	// 创建/dev/root(CONFIG_SECURITY_PATH未启动，只是创建路径)
 	if (initrd_load())
 		goto out;
 
@@ -641,6 +642,7 @@ void __init prepare_namespace(void)
 		async_synchronize_full();
 	}
 
+	// 挂载devtmpfs(/dev)，系统根文件系统 /
 	mount_root();
 out:
 	devtmpfs_mount();

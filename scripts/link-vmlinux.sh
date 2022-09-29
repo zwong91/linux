@@ -1,7 +1,7 @@
 #!/bin/sh
 # SPDX-License-Identifier: GPL-2.0
 #
-# link vmlinux
+# link vmlinux 链接脚本，用于对象和库(.a)生成vmlinux静态可执行文件，生成System.map记录所有的链接符号
 #
 # vmlinux is linked from the objects selected by $(KBUILD_VMLINUX_OBJS) and
 # $(KBUILD_VMLINUX_LIBS). Most are built-in.a files from top-level directories

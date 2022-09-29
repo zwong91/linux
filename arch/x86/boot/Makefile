@@ -80,10 +80,12 @@ silent_redirect_image = >/dev/null
 cmd_image = $(obj)/tools/build $(obj)/setup.bin $(obj)/vmlinux.bin \
 			       $(obj)/zoffset.h $@ $($(quiet)redirect_image)
 
+# bzImage依赖于$(obj)/setup.bin $(obj)/vmlinux.bin $(obj)/tools/build, build为arch/x86/boot/tools/build工具, 生成bzImage
 $(obj)/bzImage: $(obj)/setup.bin $(obj)/vmlinux.bin $(obj)/tools/build FORCE
 	$(call if_changed,image)
 	@$(kecho) 'Kernel: $@ is ready' ' (#'`cat .version`')'
 
+# 
 OBJCOPYFLAGS_vmlinux.bin := -O binary -R .note -R .comment -S
 $(obj)/vmlinux.bin: $(obj)/compressed/vmlinux FORCE
 	$(call if_changed,objcopy)
@@ -103,10 +105,12 @@ $(obj)/zoffset.h: $(obj)/compressed/vmlinux FORCE
 AFLAGS_header.o += -I$(objtree)/$(obj)
 $(obj)/header.o: $(obj)/zoffset.h
 
+# setup.elf依赖于arch/x86/boot/setup.ld *.o，然后执行ld, arch/x86/boot/.setup.elf.cmd
 LDFLAGS_setup.elf	:= -m elf_i386 -z noexecstack -T
 $(obj)/setup.elf: $(src)/setup.ld $(SETUP_OBJS) FORCE
 	$(call if_changed,ld)
 
+# setup.bin依赖于setup.elf 
 OBJCOPYFLAGS_setup.bin	:= -O binary
 $(obj)/setup.bin: $(obj)/setup.elf FORCE
 	$(call if_changed,objcopy)

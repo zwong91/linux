@@ -1,7 +1,9 @@
 /*
  * setup.ld
  *
- * Linker script for the i386 setup code
+ * Linker script for the i386 setup code  链接脚本
+ * .bstext和.bsdata属于BS(BOOTSEG), .bstext：引导扇区代码段。.bsdata：引导扇区数据段
+ * .header和入口(ENTRY)_start函数都在arch/x86/boot/header.S中定义
  */
 OUTPUT_FORMAT("elf32-i386")
 OUTPUT_ARCH(i386)

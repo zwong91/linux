@@ -582,6 +582,7 @@ quiet_cmd_makefile = GEN     Makefile
 	echo "include $(srctree)/Makefile"; \
 	} > Makefile
 
+# make menuconfig只是经过一下这里
 outputmakefile:
 	$(Q)if [ -f $(srctree)/.config -o \
 		 -d $(srctree)/include/config -o \
@@ -625,6 +626,7 @@ ifdef config-build
 include $(srctree)/arch/$(SRCARCH)/Makefile
 export KBUILD_DEFCONFIG KBUILD_KCONFIG CC_VERSION_TEXT
 
+# 执行scripts/kconfig/Makefile文件
 config: outputmakefile scripts_basic FORCE
 	$(Q)$(MAKE) $(build)=scripts/kconfig $@
 
@@ -638,6 +640,7 @@ else #!config-build
 
 # If building an external module we do not care about the all: rule
 # but instead __all depend on modules
+# __all为all，PHONY为__all scripts_basic outputmakefile all，构建包括vmlinux、特定于arch、clean和其他的目标(除了*config)
 PHONY += all
 ifeq ($(KBUILD_EXTMOD),)
 __all: all
@@ -701,6 +704,7 @@ ifdef CONFIG_FUNCTION_TRACER
   CC_FLAGS_FTRACE := -pg
 endif
 
+# 包含arch/x86/Makefile文件
 include $(srctree)/arch/$(SRCARCH)/Makefile
 
 ifdef need-config
@@ -710,6 +714,7 @@ ifdef may-sync-config
 # because some architectures define CROSS_COMPILE there.
 include include/config/auto.conf.cmd
 
+# KCONFIG_CONFIG默认.config
 $(KCONFIG_CONFIG):
 	@echo >&2 '***'
 	@echo >&2 '*** Configuration file "$@" not found!'
@@ -1071,6 +1076,7 @@ CHECKFLAGS += $(if $(CONFIG_64BIT),-m64,-m32)
 # set in the environment
 # Also any assignments in arch/$(ARCH)/Makefile take precedence over
 # this default value
+# KBUILD_IMAGE为arch/x86/boot/bzImage
 export KBUILD_IMAGE ?= vmlinux
 
 #
@@ -1082,7 +1088,7 @@ export	INSTALL_PATH ?= /boot
 # INSTALL_DTBS_PATH specifies a prefix for relocations required by build roots.
 # Like INSTALL_MOD_PATH, it isn't defined in the Makefile, but can be passed as
 # an argument if needed. Otherwise it defaults to the kernel install path
-#
+# /boot/dtbs/6.0.0
 export INSTALL_DTBS_PATH ?= $(INSTALL_PATH)/dtbs/$(KERNELRELEASE)
 
 #
@@ -1094,6 +1100,7 @@ export INSTALL_DTBS_PATH ?= $(INSTALL_PATH)/dtbs/$(KERNELRELEASE)
 MODLIB	= $(INSTALL_MOD_PATH)/lib/modules/$(KERNELRELEASE)
 export MODLIB
 
+# PHONY增加prepare0
 PHONY += prepare0
 
 export extmod_prefix = $(if $(KBUILD_EXTMOD),$(KBUILD_EXTMOD)/)
@@ -1134,6 +1141,9 @@ export KBUILD_LDS          := arch/$(SRCARCH)/kernel/vmlinux.lds
 # used by scripts/Makefile.package
 export KBUILD_ALLDIRS := $(sort $(filter-out arch/%,$(vmlinux-alldirs)) LICENSES arch include scripts tools)
 
+# KBUILD_LDS为arch/x86/kernel/vmlinux.lds
+# KBUILD_VMLINUX_OBJS为arch/x86/kernel/head_64.o arch/x86/kernel/head64.o arch/x86/kernel/ebda.o arch/x86/kernel/platform-quirks.o init/built-in.a usr/built-in.a arch/x86/built-in.a kernel/built-in.a certs/built-in.a mm/built-in.a fs/built-in.a ipc/built-in.a security/built-in.a crypto/built-in.a block/built-in.a lib/built-in.a arch/x86/lib/built-in.a drivers/built-in.a sound/built-in.a net/built-in.a virt/built-in.a arch/x86/power/built-in.a
+# KBUILD_VMLINUX_LIBS为lib/lib.a arch/x86/lib/lib.a
 vmlinux-deps := $(KBUILD_LDS) $(KBUILD_VMLINUX_OBJS) $(KBUILD_VMLINUX_LIBS)
 
 # Recurse until adjust_autoksyms.sh is satisfied
@@ -1165,6 +1175,8 @@ cmd_link-vmlinux =                                                 \
 	$(CONFIG_SHELL) $< "$(LD)" "$(KBUILD_LDFLAGS)" "$(LDFLAGS_vmlinux)";    \
 	$(if $(ARCH_POSTLINK), $(MAKE) -f $(ARCH_POSTLINK) $@, true)
 
+# vmlinux依赖scripts/link-vmlinux.sh autoksyms_recursive, vmlinux-deps为vmlinux链接用到的文件
+# call if_changed,link-vmlinux执行后生成vmlinux和System.map
 vmlinux: scripts/link-vmlinux.sh autoksyms_recursive $(vmlinux-deps) FORCE
 	+$(call if_changed_dep,link-vmlinux)
 
@@ -1184,6 +1196,7 @@ include/config/kernel.release: FORCE
 # Additional helpers built in scripts/
 # Carefully list dependencies so we do not try to build scripts twice
 # in parallel
+#  执行make build=scripts, 在srcripts/Makefile中可以看到，生成bin2c、kallsyms、asn1_compiler等工具，并且依赖于scripts_basic scripts_dtc
 PHONY += scripts
 scripts: scripts_basic scripts_dtc
 	$(Q)$(MAKE) $(build)=$(@)
@@ -1194,12 +1207,15 @@ scripts: scripts_basic scripts_dtc
 # archprepare is used in arch Makefiles and when processed asm symlink,
 # version.h and scripts_basic is processed / created.
 
+# prepare0依赖于archprepare，而archprepare依赖于outputmakefile archheaders archscripts scripts
+# archheaders在 arch/x86/Makefile文件
 PHONY += prepare archprepare
 
 archprepare: outputmakefile archheaders archscripts scripts include/config/kernel.release \
 	asm-generic $(version_h) $(autoksyms_h) include/generated/utsrelease.h \
 	include/generated/autoconf.h remove-stale-files
 
+# build 定义在文件scripts/Kbuild.include, 生成modpost和mk_elfconfig等工具, 调用到根目录下Kbuild文件，如missing-syscalls
 prepare0: archprepare
 	$(Q)$(MAKE) $(build)=scripts/mod
 	$(Q)$(MAKE) $(build)=.
@@ -1211,7 +1227,8 @@ PHONY += remove-stale-files
 remove-stale-files:
 	$(Q)$(srctree)/scripts/remove-stale-files
 
-# Support for using generic headers in asm-generic
+
+# Support for using generic headers in asm-generic 导入asm-generic头文件引用
 asm-generic := -f $(srctree)/scripts/Makefile.asm-generic obj
 
 PHONY += asm-generic uapi-asm-generic
@@ -1339,6 +1356,7 @@ ifeq ($(quiet),silent_)
 tools_silent=s
 endif
 
+# 编译tools目录，执行DESCEND objtoo
 tools/: FORCE
 	$(Q)mkdir -p $(objtree)/tools
 	$(Q)$(MAKE) LDFLAGS= MAKEFLAGS="$(tools_silent) $(filter --j% -j,$(MAKEFLAGS))" O=$(abspath $(objtree)) subdir=tools -C $(srctree)/tools/
@@ -1404,6 +1422,7 @@ endif
 
 endif
 
+# 执行make build=scripts/dtc，用于生成dtc工具
 PHONY += scripts_dtc
 scripts_dtc: scripts_basic
 	$(Q)$(MAKE) $(build)=scripts/dtc
@@ -1846,6 +1865,9 @@ endif
 # tweaks to this spot to avoid wrong language settings when running
 # make menuconfig etc.
 # Error messages still appears in the original language
+# 进入编译阶段，递归遍历从vmlinux-dirs以及它内部的全部目录执行make指令
+# build-dirs为init usr arch/x86 kernel certs mm fs ipc security crypto block drivers sound net virt arch/x86/power lib arch/x86/lib;
+# 所有的目录编译结束后，每个目录下的源代码将会被编译成.o文件并生成built-in.a
 PHONY += descend $(build-dirs)
 descend: $(build-dirs)
 $(build-dirs): prepare

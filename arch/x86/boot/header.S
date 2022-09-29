@@ -25,9 +25,11 @@
 #include "voffset.h"
 #include "zoffset.h"
 
+# BS起始地址设置为0x07C0，SYSSEG为软启动加载地址(为兼容早期启动方式)
 BOOTSEG		= 0x07C0		/* original address of boot-sector */
 SYSSEG		= 0x1000		/* historical load address >> 4 */
 
+# SVGA_MODE表示数据入口点，ROOT_RDONLY为1表示/root，即root在根目录
 #ifndef SVGA_MODE
 #define SVGA_MODE ASK_VGA
 #endif
@@ -36,6 +38,9 @@ SYSSEG		= 0x1000		/* historical load address >> 4 */
 #define ROOT_RDONLY 1
 #endif
 
+# 16位汇编代码，分配.bstext(允许执行，a允许段，w可写段，x执行段)
+# CONFIG_EFI_STUB用于支持efi stub启动模式，默认make menuconfig没有启动这个选项
+#  ljmp $BOOTSEG, $start2，从0x07C0执行start2分支，这里只是检测是否直接启动(按任意键重启电脑)
 	.code16
 	.section ".bstext", "ax"
 
@@ -49,6 +54,7 @@ bootsect_start:
 	# Normalize the start address
 	ljmp	$BOOTSEG, $start2
 
+# 提示输出字符串"Use a boot loader",  "Remove disk and press any key to reboot…"
 start2:
 	movw	%cs, %ax
 	movw	%ax, %ds
@@ -293,6 +299,7 @@ vid_mode:	.word SVGA_MODE
 root_dev:	.word 0			/* Filled in by build.c */
 boot_flag:	.word 0xAA55
 
+# vmlinux可执行文件偏移512字节执行_start(setup.ld跳转到_start)，跳转到start_of_setup分支
 	# offset 512, entry point
 
 	.globl	_start
@@ -584,11 +591,18 @@ kernel_info_offset:	.long 0			# Filled in by build.c
 
 # End of setup header #####################################################
 
+# start_of_setup主要作用:
+# 1. 重设栈(空间)
+# 2. 检查、设置栈
+# 3. 载入setup.elf，启动中断
+# 4. 检查setup.elf载入是否完整，bss段清零, 跳转到main函数执行
+
 	.section ".entrytext", "ax"
 start_of_setup:
 # Force %es = %ds
 	movw	%ds, %ax
 	movw	%ax, %es
+# 将标志寄存器flag的方向标志位df清零.在字串操作中使变址寄存器si或di的地址指针自动增加,字串处理由前往后
 	cld
 
 # Apparently some ancient versions of LILO invoked the kernel with %ss != %ds,

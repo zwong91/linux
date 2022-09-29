@@ -26,7 +26,18 @@ char *heap_end = _end;		/* Default end of heap = no heap */
  * Copy the header into the boot parameter block.  Since this
  * screws up the old-style command line protocol, adjust by
  * filling in the new-style command line pointer instead.
- */
+ 如果是旧版本内核(0xA33F)，将hdr从第一个扇区的497个字节的位置复制到boot_params.hdr里面,  除此之外，boot_params别的成员对象都是干净的(未赋值)
+         .globl  hdr
+hdr:
+setup_sects:    .byte 0                 // Filled in by build.c
+root_flags:     .word ROOT_RDONLY
+syssize:        .long 0                 // Filled in by build.c 
+ram_size:       .word 0                 // Obsolete
+vid_mode:       .word SVGA_MODE
+root_dev:       .word 0                 // Filled in by build.c
+boot_flag:      .word 0xAA55
+
+*/
 
 static void copy_boot_params(void)
 {
@@ -38,8 +49,10 @@ static void copy_boot_params(void)
 		absolute_pointer(OLD_CL_ADDRESS);
 
 	BUILD_BUG_ON(sizeof(boot_params) != 4096);
+	// 拷贝hdr结构到boot_params.hdr
 	memcpy(&boot_params.hdr, &hdr, sizeof(hdr));
 
+	// struct setup_header hdr;结构定义；引导加载程序应该只获取setup_header并放入将其放入干净的启动参数缓冲区
 	if (!boot_params.hdr.cmd_line_ptr &&
 	    oldcmd->cl_magic == OLD_CL_MAGIC) {
 		/* Old-style command line protocol. */
@@ -137,34 +150,34 @@ void main(void)
 {
 	init_default_io_ops();
 
-	/* First, copy the boot header into the "zeropage" */
+	/* First, copy the boot header into the "zeropage" 将引导头拷贝到零页中 */
 	copy_boot_params();
 
-	/* Initialize the early-boot console */
+	/* Initialize the early-boot console 初始化控制台, 检测是否有串口可用，默认为ttyS0 */
 	console_init();
 	if (cmdline_find_option_bool("debug"))
 		puts("early console in setup code\n");
 
-	/* End of heap check */
+	/* End of heap check 设置栈底指针*/
 	init_heap();
 
-	/* Make sure we have all the proper CPU support */
+	/* Make sure we have all the proper CPU support 检查所有cpu是否都能使用*/
 	if (validate_cpu()) {
 		puts("Unable to boot - please use a kernel appropriate "
 		     "for your CPU.\n");
 		die();
 	}
 
-	/* Tell the BIOS what CPU mode we intend to run in. */
+	/* Tell the BIOS what CPU mode we intend to run in. 设置cpu运行模式(只对16、32位有效，设置为长模式)，64位, 此时还是实模式*/
 	set_bios_mode();
 
-	/* Detect memory layout */
+	/* Detect memory layout 检测内存*/
 	detect_memory();
 
-	/* Set keyboard repeat rate (why?) and query the lock flags */
+	/* Set keyboard repeat rate (why?) and query the lock flags 设置键盘重复频率*/
 	keyboard_init();
 
-	/* Query Intel SpeedStep (IST) information */
+	/* Query Intel SpeedStep (IST) information 检查英特尔IST*/
 	query_ist();
 
 	/* Query APM information */
@@ -177,9 +190,9 @@ void main(void)
 	query_edd();
 #endif
 
-	/* Set the video mode */
+	/* Set the video mode 设置显式模式*/
 	set_video();
 
-	/* Do the last things and invoke protected mode */
+	/* Do the last things and invoke protected mode 实模式跳转到保护模式*/
 	go_to_protected_mode();
 }

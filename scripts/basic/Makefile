@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-2.0-only
 #
 # fixdep: used to generate dependency information during build process
-
+# scripts/basic/Makefile生成fixdep工具
 hostprogs-always-y	+= fixdep
 
 # randstruct: the seed is needed before building the gcc-plugin or

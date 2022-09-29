@@ -221,12 +221,12 @@ ifdef CONFIG_X86_64
 LDFLAGS_vmlinux += -z max-page-size=0x200000
 endif
 
-
+# archscripts生成relocs工具，依赖于scripts_basic
 archscripts: scripts_basic
 	$(Q)$(MAKE) $(build)=arch/x86/tools relocs
 
 ###
-# Syscall table generation
+# Syscall table generation 生成的系统调用列表syscall table
 
 archheaders:
 	$(Q)$(MAKE) $(build)=arch/x86/entry/syscalls all
@@ -264,11 +264,13 @@ all: bzImage
 
 # KBUILD_IMAGE specify target image being built
 KBUILD_IMAGE := $(boot)/bzImage
-
 bzImage: vmlinux
 ifeq ($(CONFIG_X86_DECODER_SELFTEST),y)
 	$(Q)$(MAKE) $(build)=arch/x86/tools posttest
 endif
+# make -f scripts/Makefile.build obj=arch/x86/boot arch/x86/boot/bzImage
+# mkdir -p ./arch/x86/boot
+# ln -fsn …/…/x86/boot/bzImage ./arch/x86_64/boot/bzImage
 	$(Q)$(MAKE) $(build)=$(boot) $(KBUILD_IMAGE)
 	$(Q)mkdir -p $(objtree)/arch/$(UTS_MACHINE)/boot
 	$(Q)ln -fsn ../../x86/boot/bzImage $(objtree)/arch/$(UTS_MACHINE)/boot/$@

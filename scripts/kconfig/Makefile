@@ -36,6 +36,7 @@ nconfig-prog	:= nconf
 gconfig-prog	:= gconf
 xconfig-prog	:= qconf
 
+# Kconfig视图工具
 define config_rule
 PHONY += $(1)
 $(1): $(obj)/$($(1)-prog)
@@ -171,6 +172,7 @@ lxdialog	:= $(addprefix lxdialog/, \
 		     checklist.o inputbox.o menubox.o textbox.o util.o yesno.o)
 mconf-objs	:= mconf.o $(lxdialog) $(common-objs)
 
+# 编译生成mconf工具
 HOSTLDLIBS_mconf = $(shell . $(obj)/mconf-cfg && echo $$libs)
 $(foreach f, mconf.o $(lxdialog), \
   $(eval HOSTCFLAGS_$f = $$(shell . $(obj)/mconf-cfg && echo $$$$cflags)))
@@ -208,6 +210,7 @@ $(obj)/gconf.o: $(obj)/gconf-cfg
 # check if necessary packages are available, and configure build flags
 filechk_conf_cfg = $(CONFIG_SHELL) $<
 
+# 在scripts/kconfig/文件夹内更新mconf-cfg脚本
 $(obj)/%conf-cfg: $(src)/%conf-cfg.sh FORCE
 	$(call filechk,conf_cfg)
 

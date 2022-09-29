@@ -1,0 +1,5 @@
+{
+    "editor.suggest.preview": true,
+    "editor.rename.enablePreview": false,
+    "workbench.editor.enablePreview": false
+}

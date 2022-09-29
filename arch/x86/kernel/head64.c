@@ -140,6 +140,8 @@ static unsigned long __head sme_postprocess_startup(struct boot_params *bp, pmdv
 	 * The bss section will be memset to zero later in the initialization so
 	 * there is no need to zero it after changing the memory encryption
 	 * attribute.
+	 * 从中清除内存加密掩码…bss段，解密部分。
+	 * bss部分将在稍后的初始化中设置为零，以便更改内存加密后，无需将其归零。返回SME加密掩码(如果SME处于活动状态)以用作初始pgdir条目的修饰符编程到CR3中
 	 */
 	if (sme_get_me_mask()) {
 		vaddr = (unsigned long)__start_bss_decrypted;
@@ -190,8 +192,8 @@ unsigned long __head __startup_64(unsigned long physaddr,
 	int i;
 	unsigned int *next_pgt_ptr;
 
+	// 每个全局指针都必须使用fixup_pointer()进行调整，防止因未对全局指针重定位导致的启动崩溃
 	la57 = check_la57_support(physaddr);
-
 	/* Is the address too large? */
 	if (physaddr >> MAX_PHYSMEM_BITS)
 		for (;;);
@@ -206,14 +208,15 @@ unsigned long __head __startup_64(unsigned long physaddr,
 	if (load_delta & ~PMD_PAGE_MASK)
 		for (;;);
 
-	/* Include the SME encryption mask in the fixup value */
+	/* Include the SME encryption mask in the fixup value 修正值中包含SME加密掩码*/
 	load_delta += sme_get_me_mask();
 
 	/* Fixup the physical addresses in the page table */
-
+	// 使用fixup_pointer()进行调整全局指针，计算实际地址和负载增量(编译多出来的字节)，如启动SME(支持并启动的情况下)，修正值中包含SME加密掩码
 	pgd = fixup_pointer(&early_top_pgt, physaddr);
 	p = pgd + pgd_index(__START_KERNEL_map);
-	if (la57)
+	// 计算内存页表地址
+	if (la57)	//如果已启动5级分页
 		*p = (unsigned long)level4_kernel_pgt;
 	else
 		*p = (unsigned long)level3_kernel_pgt;
@@ -238,7 +241,7 @@ unsigned long __head __startup_64(unsigned long physaddr,
 	 * creates a bunch of nonsense entries but that is fine --
 	 * it avoids problems around wraparound.
 	 */
-
+	// 过滤不支持的内核页
 	next_pgt_ptr = fixup_pointer(&next_early_pgt, physaddr);
 	pud = fixup_pointer(early_dynamic_pgts[(*next_pgt_ptr)++], physaddr);
 	pmd = fixup_pointer(early_dynamic_pgts[(*next_pgt_ptr)++], physaddr);
@@ -294,7 +297,7 @@ unsigned long __head __startup_64(unsigned long physaddr,
 	 * speculative access to some reserved areas is caught as an
 	 * error, causing the BIOS to halt the system.
 	 */
-
+	// 修复内核text段数据虚拟地址
 	pmd = fixup_pointer(level2_kernel_pgt, physaddr);
 
 	/* invalidate pages before the kernel image */
@@ -312,7 +315,7 @@ unsigned long __head __startup_64(unsigned long physaddr,
 
 	/*
 	 * Fixup phys_base - remove the memory encryption mask to obtain
-	 * the true physical address.
+	 * the true physical address. 移除内存加密掩码以获取真实的地址
 	 */
 	*fixup_long(&phys_base, physaddr) += load_delta - sme_get_me_mask();
 
@@ -476,6 +479,7 @@ asmlinkage __visible void __init x86_64_start_kernel(char * real_mode_data)
 	/*
 	 * Build-time sanity checks on the kernel image and module
 	 * area mappings. (these are purely build-time and produce no code)
+	 * 内核映像和模块的构建时健全性检查，初始化(本cpu)cr4所运行的模式(x86_64)
 	 */
 	BUILD_BUG_ON(MODULES_VADDR < __START_KERNEL_map);
 	BUILD_BUG_ON(MODULES_VADDR - __START_KERNEL_map < KERNEL_IMAGE_SIZE);
@@ -489,6 +493,7 @@ asmlinkage __visible void __init x86_64_start_kernel(char * real_mode_data)
 
 	cr4_init_shadow();
 
+	// 清除除内核符号映射之外的所有早期页面表，清空bss段，清除页部分特征
 	/* Kill off the identity-map trampoline */
 	reset_early_page_tables();
 
@@ -503,10 +508,11 @@ asmlinkage __visible void __init x86_64_start_kernel(char * real_mode_data)
 	/*
 	 * SME support may update early_pmd_flags to include the memory
 	 * encryption mask, so it needs to be called before anything
-	 * that may generate a page fault.
+	 * that may generate a page fault. sme初始化，使用内存加密掩码更新保护映射
 	 */
 	sme_early_init();
 
+	// 遮蔽不支持的内核页，在kasan中登记顶级页表地址
 	kasan_early_init();
 
 	/*
@@ -519,21 +525,24 @@ asmlinkage __visible void __init x86_64_start_kernel(char * real_mode_data)
 	 */
 	__native_tlb_flush_global(this_cpu_read(cpu_tlbstate.cr4));
 
+	// 初始化idt表
 	idt_setup_early_handler();
 
 	/* Needed before cc_platform_has() can be used for TDX */
 	tdx_early_init();
 
+	// 拷贝有效数据(旧的启动数据内存释放(空间)，删除sme相关的映射)
 	copy_bootdata(__va(real_mode_data));
 
 	/*
-	 * Load microcode early on BSP.
+	 * Load microcode early on BSP. 加载intel microcode
 	 */
 	load_ucode_bsp();
 
-	/* set init_top_pgt kernel high mapping*/
+	/* set init_top_pgt kernel high mapping 设置内核高地址映射*/
 	init_top_pgt[511] = early_top_pgt[511];
 
+	// 进入x86_64_start_reservations函数
 	x86_64_start_reservations(real_mode_data);
 }
 
@@ -543,16 +552,18 @@ void __init x86_64_start_reservations(char *real_mode_data)
 	if (!boot_params.hdr.version)
 		copy_bootdata(__va(real_mode_data));
 
+	// 设置i8042键盘(如果存在)
 	x86_early_init_platform_quirks();
 
 	switch (boot_params.hdr.hardware_subarch) {
 	case X86_SUBARCH_INTEL_MID:
-		x86_intel_mid_early_setup();
+		x86_intel_mid_early_setup();	// intel x86初始化
 		break;
 	default:
 		break;
 	}
 
+	// 进入 start_kernel函数(init/main.c)
 	start_kernel();
 }
 

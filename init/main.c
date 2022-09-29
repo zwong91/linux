@@ -931,13 +931,17 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	char *command_line;
 	char *after_dashes;
 
+	// 设置工作栈底标志，用于溢出检测
 	set_task_stack_end_magic(&init_task);
 	smp_setup_processor_id();
+	// 在早期引导期间调用以初始化哈希buckets和链接，静态对象将对象汇集到轮询列表中
 	debug_objects_early_init();
 	init_vmlinux_build_id();
 
+	//初始化cgroup，并初始化任何请求早期初始化的子系统
 	cgroup_init_early();
 
+	// 禁用中断
 	local_irq_disable();
 	early_boot_irqs_disabled = true;
 
@@ -945,23 +949,33 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	 * Interrupts are still disabled. Do necessary setups, then
 	 * enable them.
 	 */
+	// 初始化第一个cpu
 	boot_cpu_init();
 	page_address_init();
 	pr_notice("%s", linux_banner);
 	early_security_init();
+	// 将内核占用的内存保留在_text和__end_of_kernel_reserve符号，确保始终保留第0页，
+	// 因为在具有L1TF的内容可能会泄露给用户进程，在这一点上，仍然需要从引导加载程序获得一切或BIOS或内核文本
 	setup_arch(&command_line);
+	// 即使我们没有bootconfig选项，也要删除bootconfig数据，以“kernel.”开头的键是通过cmdline传递的
 	setup_boot_config();
+	//存储未触及的命令行以供将来参考
 	setup_command_line(command_line);
+	//arch可以提前设置nr_cpu_ID，通常是多余的
 	setup_nr_cpu_ids();
+	//分配per cpu区域
 	setup_per_cpu_areas();
 	smp_prepare_boot_cpu();	/* arch-specific boot-cpu hooks */
+	//设置cpu热插拔，必须在设置每个cpu区域后调用
 	boot_cpu_hotplug_init();
 
 	build_all_zonelists(NULL);
+	//设置cpu热插拔回调函数
 	page_alloc_init();
 
 	pr_notice("Kernel command line: %s\n", saved_command_line);
 	/* parameters may set static keys */
+	// 初始化跳转标签
 	jump_label_init();
 	parse_early_param();
 	after_dashes = parse_args("Booting kernel",
@@ -969,6 +983,7 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 				  __stop___param - __start___param,
 				  -1, -1, NULL, &unknown_bootoption);
 	print_unknown_bootoptions();
+	//解析是否x64_64
 	if (!IS_ERR_OR_NULL(after_dashes))
 		parse_args("Setting init args", after_dashes, NULL, 0, -1, -1,
 			   NULL, set_init_arg);
@@ -980,27 +995,34 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	 * These use large bootmem allocations and must precede
 	 * kmem_cache_init()
 	 */
+	//分配内核打印缓存区
 	setup_log_buf(0);
+	//虚拟文件系统初始化，dcache、inode初始化
 	vfs_caches_init_early();
+	//对内核的内置异常表进行排序
 	sort_main_extable();
+	//在设置IST条目之前初始化cpu条目区域，应该是任何外部CPU状态的屏障
 	trap_init();
+	//设置内核内存分配器
 	mm_init();
 
+	//设置ftrace过滤器，global_ops
 	ftrace_init();
 
-	/* trace_printk can be enabled here */
+	/* trace_printk can be enabled here trace分配*/
 	early_trace_init();
 
 	/*
 	 * Set up the scheduler prior starting any interrupts (such as the
 	 * timer interrupt). Full topology setup happens at smp_init()
-	 * time - but meanwhile we still have a functioning scheduler.
+	 * time - but meanwhile we still have a functioning scheduler. 调度器初始化
 	 */
 	sched_init();
 
 	if (WARN(!irqs_disabled(),
 		 "Interrupts were enabled *very* early, fixing it\n"))
 		local_irq_disable();
+	//创建radix_tree_node
 	radix_tree_init();
 
 	/*
@@ -1014,8 +1036,10 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	 * early.  Work item execution depends on kthreads and starts after
 	 * workqueue_init().
 	 */
+	// 设置了所有的数据结构和系统工作队列并允许早期启动代码创建工作队列和排队/取消工作任务
 	workqueue_init_early();
 
+	// rcu初始化，中断初始化
 	rcu_init();
 
 	/* Trace events are available after this */
@@ -1033,9 +1057,12 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	init_timers();
 	srcu_init();
 	hrtimers_init();
+	//开启软中断
 	softirq_init();
+	//初始化时钟源和公共计时值
 	timekeeping_init();
 	kfence_init();
+	//初始化TSC并将周期计时器初始化
 	time_init();
 
 	/*
@@ -1045,6 +1072,7 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	 * - time_init() for making random_get_entropy() work on some platforms
 	 * - random_init() to initialize the RNG from from early entropy sources
 	 */
+	// 初始化随机池
 	random_init(command_line);
 	boot_init_stack_canary();
 
@@ -1054,8 +1082,8 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	WARN(!irqs_disabled(), "Interrupts were enabled early\n");
 
 	early_boot_irqs_disabled = false;
-	local_irq_enable();
-
+	local_irq_enable();	// 恢复中断
+	//kmem缓冲区后续初始化
 	kmem_cache_init_late();
 
 	/*
@@ -1063,6 +1091,7 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	 * we've done PCI setups etc, and console_init() must be aware of
 	 * this. But we do want output early, in case something goes wrong.
 	 */
+	//设置控制台参数
 	console_init();
 	if (panic_later)
 		panic("Too many boot %s vars at `%s'", panic_later,
@@ -1094,13 +1123,16 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 		initrd_start = 0;
 	}
 #endif
-	setup_per_cpu_pageset();
+	setup_per_cpu_pageset();	//分配每个cpu页面集并初始化
 	numa_policy_init();
+	//初始化ACPICA并填充acpi命名空间
 	acpi_early_init();
 	if (late_time_init)
 		late_time_init();
+	//调度时钟初始化
 	sched_clock_init();
 	calibrate_delay();
+	//pid表初始化
 	pid_idr_init();
 	anon_vma_init();
 #ifdef CONFIG_X86
@@ -1109,7 +1141,9 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 #endif
 	thread_stack_cache_init();
 	cred_init();
+	//创建一个可以分配任务结构的slab，指定架构任务缓存，设置最大线程
 	fork_init();
+	//sighand_cache、signal_cache、files_cache、fs_cache
 	proc_caches_init();
 	uts_ns_init();
 	key_init();
@@ -1117,9 +1151,12 @@ asmlinkage __visible void __init __no_sanitize_address start_kernel(void)
 	dbg_late_init();
 	net_ns_init();
 	vfs_caches_init();
+	//页缓存队列
 	pagecache_init();
+	//信号池
 	signals_init();
 	seq_file_init();
+	//fs、driver、fs/nfsd、bus等创建，注册文件系统
 	proc_root_init();
 	nsfs_init();
 	cpuset_init();

@@ -38,6 +38,7 @@ L4_START_KERNEL = l4_index(__START_KERNEL_map)
 
 L3_START_KERNEL = pud_index(__START_KERNEL_map)
 
+# 进入startup_64函数，ORC分类器设置为空
 	.text
 	__HEAD
 	.code64
@@ -62,6 +63,7 @@ SYM_CODE_START_NOALIGN(startup_64)
 	 */
 
 	/* Set up the stack for verify_cpu(), similar to initial_stack below */
+	# 计算出实模式的物理地址(加载了一个身份映射页表，这些标识映射的页表映射所有内核页面，可能还有所有内存，__end_rodata_aligned+0x3f58)，然后校验/清理cpu配置信息
 	leaq	(__end_init_task - FRAME_SIZE)(%rip), %rsp
 
 	leaq	_text(%rip), %rdi
@@ -115,13 +117,14 @@ SYM_CODE_START_NOALIGN(startup_64)
 	 * the kernel and retrieve the modifier (SME encryption mask if SME
 	 * is active) to be added to the initial pgdir entry that will be
 	 * programmed into CR3.
+	 * 计算出startup_64地址，用于修正/对齐之后的内存，调用__startup_64函数(传入第一个和第二参数)
 	 */
 	leaq	_text(%rip), %rdi
 	pushq	%rsi
 	call	__startup_64
 	popq	%rsi
 
-	/* Form the CR3 value being sure to include the CR3 modifier */
+	/* Form the CR3 value being sure to include the CR3 modifier 跳转到secondary_startup_64函数(secondary_startup_64+0x12)*/
 	addq	$(early_top_pgt - __START_KERNEL_map), %rax
 	jmp 1f
 SYM_CODE_END(startup_64)
@@ -187,7 +190,7 @@ SYM_INNER_LABEL(secondary_startup_64_no_verify, SYM_L_GLOBAL)
 	movl	$0, %ecx
 #endif
 
-	/* Enable PAE mode, PGE and LA57 */
+	/* Enable PAE mode, PGE and LA57 启用PAE模式、PGE*/
 	orl	$(X86_CR4_PAE | X86_CR4_PGE), %ecx
 #ifdef CONFIG_X86_5LEVEL
 	testl	$1, __pgtable_l5_enabled(%rip)
@@ -236,7 +239,7 @@ SYM_INNER_LABEL(secondary_startup_64_no_verify, SYM_L_GLOBAL)
 	/* Ensure I am executing from virtual addresses */
 	movq	$1f, %rax
 	ANNOTATE_RETPOLINE_SAFE
-	jmp	*%rax
+	jmp	*%rax	# 设置早期启动阶段4级页表，继续向下跳转
 1:
 	UNWIND_HINT_EMPTY
 	ANNOTATE_NOENDBR // above
@@ -245,11 +248,11 @@ SYM_INNER_LABEL(secondary_startup_64_no_verify, SYM_L_GLOBAL)
 	 * We must switch to a new descriptor in kernel space for the GDT
 	 * because soon the kernel won't have access anymore to the userspace
 	 * addresses where we're currently running on. We have to do that here
-	 * because in 32bit we couldn't load a 64bit linear address.
+	 * because in 32bit we couldn't load a 64bit linear address. 切换到新的地址
 	 */
 	lgdt	early_gdt_descr(%rip)
 
-	/* set up data segments */
+	/* set up data segments, eax寄存器清空，设置部分寄存器*/
 	xorl %eax,%eax
 	movl %eax,%ds
 	movl %eax,%ss
@@ -268,7 +271,7 @@ SYM_INNER_LABEL(secondary_startup_64_no_verify, SYM_L_GLOBAL)
 	 * The base of %gs always points to fixed_percpu_data. If the
 	 * stack protector canary is enabled, it is located at %gs:40.
 	 * Note that, on SMP, the boot cpu uses init data section until
-	 * the per cpu areas are set up.
+	 * the per cpu areas are set up. 在SMP上，引导cpu使用init data部分，直到每个cpu区域都已设置
 	 */
 	movl	$MSR_GS_BASE,%ecx
 	movl	initial_gs(%rip),%eax
@@ -277,7 +280,7 @@ SYM_INNER_LABEL(secondary_startup_64_no_verify, SYM_L_GLOBAL)
 
 	/*
 	 * Setup a boot time stack - Any secondary CPU will have lost its stack
-	 * by now because the cr3-switch above unmaps the real-mode stack
+	 * by now because the cr3-switch above unmaps the real-mode stack 设置启动时堆栈
 	 */
 	movq initial_stack(%rip), %rsp
 
@@ -291,7 +294,7 @@ SYM_INNER_LABEL(secondary_startup_64_no_verify, SYM_L_GLOBAL)
 	cpuid
 	movl	%edx,%edi
 
-	/* Setup EFER (Extended Feature Enable Register) */
+	/* Setup EFER (Extended Feature Enable Register) 设置EFER(扩展功能启用寄存器)，启动系统调用(system call)，跳转到wrmsr*/
 	movl	$MSR_EFER, %ecx
 	rdmsr
 	/*
@@ -414,7 +417,7 @@ SYM_CODE_END(vc_boot_ghcb)
 	/* Both SMP bootup and ACPI suspend change these variables */
 	__REFDATA
 	.balign	8
-SYM_DATA(initial_code,	.quad x86_64_start_kernel)
+SYM_DATA(initial_code,	.quad x86_64_start_kernel)	# 执行x86_64_start_kernel函数
 SYM_DATA(initial_gs,	.quad INIT_PER_CPU_VAR(fixed_percpu_data))
 #ifdef CONFIG_AMD_MEM_ENCRYPT
 SYM_DATA(initial_vc_handler,	.quad handle_vc_boot_ghcb)

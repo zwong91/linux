@@ -53,7 +53,7 @@ SYM_CODE_START_NOALIGN(startup_64)
 	 *
 	 * We come here either directly from a 64bit bootloader, or from
 	 * arch/x86/boot/compressed/head_64.S.
-	 *
+	 * bzImage需要解压vmlinux.bin, 然后才能执行startup_64, ffffffff81000000 <startup_64>
 	 * We only come here initially at boot nothing else comes here.
 	 *
 	 * Since we may be loaded at an address different from what we were

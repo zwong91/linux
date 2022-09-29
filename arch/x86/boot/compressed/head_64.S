@@ -71,6 +71,8 @@
  */
 #define rva(X) ((X) - startup_32)
 
+# startup_32属于从32位到64的过渡阶段，这里开始禁止中断
+
 	.code32
 SYM_FUNC_START(startup_32)
 	/*
@@ -79,8 +81,8 @@ SYM_FUNC_START(startup_32)
 	 * kernel(text+data+bss+brk) ramdisk, zero_page, command line
 	 * all need to be under the 4G limit.
 	 */
-	cld
-	cli
+	cld		# eflags DF=0, si/di ++ 顺序
+	cli		# 关中断
 
 /*
  * Calculate the delta between where we were compiled to run
@@ -89,6 +91,7 @@ SYM_FUNC_START(startup_32)
  * address we are running at.  The reserved chunk of the real-mode
  * data at 0x1e4 (defined as a scratch field) are used as the stack
  * for this calculation. Only 4 bytes are needed.
+ * 这里的部分地址需要重新计算(通过在实模式中0x1e4地址预留的4个字节内完成)，设置相关数据段，设置堆栈，确保cpu支持长模式
  */
 	leal	(BP_scratch+4)(%esi), %esp
 	call	1f
@@ -120,7 +123,7 @@ SYM_FUNC_START(startup_32)
 	/* Setup Exception handling for SEV-ES */
 	call	startup32_load_idt
 
-	/* Make sure cpu supports long mode. */
+	/* Make sure cpu supports long mode. 校验cpu是否支持长模式，如果不支持执行.Lno_longmode*/
 	call	verify_cpu
 	testl	%eax, %eax
 	jnz	.Lno_longmode
@@ -131,7 +134,7 @@ SYM_FUNC_START(startup_32)
  *
  * %ebp contains the address we are loaded at by the boot loader and %ebx
  * contains the address where we should move the kernel image temporarily
- * for safe in-place decompression.
+ * for safe in-place decompression.  %ebp包含引导加载程序和%ebx加载的地址
  */
 
 #ifdef CONFIG_RELOCATABLE
@@ -145,10 +148,12 @@ SYM_FUNC_START(startup_32)
  * can use the full available buffer.
  *	image_offset = startup_32 - image_base
  * Otherwise image_offset will be zero and has no effect on the calculations.
+ * 通过EFI LoadImage服务加载的，那么startup_32将在偏移到为image分配的空间的起点
  */
 	subl    rva(image_offset)(%ebp), %ebx
 #endif
 
+# EFI引导，需要计算出实际物理地址，否则直接把物理地址放入基地址(寄存器)
 	movl	BP_kernel_alignment(%esi), %eax
 	decl	%eax
 	addl	%eax, %ebx
@@ -168,13 +173,13 @@ SYM_FUNC_START(startup_32)
  * Prepare for entering 64 bit mode
  */
 
-	/* Enable PAE mode */
+	/* Enable PAE mode 启用PAE模式*/
 	movl	%cr4, %eax
 	orl	$X86_CR4_PAE, %eax
 	movl	%eax, %cr4
 
  /*
-  * Build early 4G boot pagetable
+  * Build early 4G boot pagetable 构建早期4G页表，为页表设置加密掩码
   */
 	/*
 	 * If SEV is active then set the encryption mask in the page tables.
@@ -233,11 +238,11 @@ SYM_FUNC_START(startup_32)
 	decl	%ecx
 	jnz	1b
 
-	/* Enable the boot page tables */
+	/* Enable the boot page tables 开启页表，cr3存放页目录表物理内存基地址*/
 	leal	rva(pgtable)(%ebx), %eax
 	movl	%eax, %cr3
 
-	/* Enable Long mode in EFER (Extended Feature Enable Register) */
+	/* Enable Long mode in EFER (Extended Feature Enable Register) EFER(扩展功能启用寄存器)中启用长模式 */
 	movl	$MSR_EFER, %ecx
 	rdmsr
 	btsl	$_EFER_LME, %eax
@@ -250,7 +255,7 @@ SYM_FUNC_START(startup_32)
 	ltr	%ax
 
 	/*
-	 * Setup for the jump to 64bit mode
+	 * Setup for the jump to 64bit mode 进入64位模式
 	 *
 	 * When the jump is performed we will be in long mode but
 	 * in 32bit compatibility mode with EFER.LME = 1, CS.L = 0, CS.D = 1
@@ -348,7 +353,7 @@ SYM_CODE_START(startup_64)
 	cld
 	cli
 
-	/* Setup data segments. */
+	/* Setup data segments. 由于已经进入到新的地址模式，再次设置了段寄存器*/
 	xorl	%eax, %eax
 	movl	%eax, %ds
 	movl	%eax, %es
@@ -367,6 +372,7 @@ SYM_CODE_START(startup_64)
 	 *
 	 * We cannot rely on the calculation done in 32-bit mode, since we
 	 * may have been invoked via the 64-bit entry point.
+	 * 重载地址，设置分页，将压缩后的内核拷贝到栈底解压，跳转到重新定位的地址(arch/x86/kernel/head_64.S中的入口，startup_64)
 	 */
 
 	/* Start with the delta to where the kernel will run at. */

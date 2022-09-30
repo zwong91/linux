@@ -2709,6 +2709,10 @@ pid_t kernel_clone(struct kernel_clone_args *args)
 
 /*
  * Create a kernel thread.
+ * int (*fn)(void *)： 调用函数
+ * void *arg： 函数调用参数
+ * unsigned long flags：线程标志
+ * 内核线程的识别及创建，如线程不能同时分配新的用户空间和pid命名空间，并且与父进程在同一个命名空间(用户、time)，共享父进程的信号、虚拟内存等等，有自己的内核栈
  */
 pid_t kernel_thread(int (*fn)(void *), void *arg, unsigned long flags)
 {

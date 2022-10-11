@@ -91,7 +91,7 @@ long calc_load_fold_active(struct rq *this_rq, long adjust)
 }
 
 /**
- * fixed_power_int - compute: x^n, in O(log n) time
+ * fixed_power_int - compute: x^n, in O(log n) time  uptime EMA算法计算平均值, 距离目标预测窗口越近, 则数据价值越高, 对未来影响最大
  *
  * @x:         base of the power
  * @frac_bits: fractional bits of @x

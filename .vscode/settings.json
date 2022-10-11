@@ -1,5 +1,12 @@
 {
-    "editor.suggest.preview": true,
-    "editor.rename.enablePreview": false,
-    "workbench.editor.enablePreview": false
+    "files.exclude": {
+        "**/.*.*.cmd": true,
+        "**/.*.d": true,
+        "**/.*.S": true
+    },
+    "[c]": {
+        "editor.detectIndentation": false,
+        "editor.tabSize": 8,
+        "editor.insertSpaces": false
+    }
 }
